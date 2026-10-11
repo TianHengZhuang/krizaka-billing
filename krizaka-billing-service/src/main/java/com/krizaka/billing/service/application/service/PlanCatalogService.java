@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,13 +32,43 @@ public class PlanCatalogService {
 
   private final JdbcTemplate jdbcTemplate;
   private final BillingVersionHistoryService versionHistoryService;
+  private final BillingConfigurationService configuration;
 
+  /**
+   * The catalogue as wired by Spring.
+   *
+   * @param jdbcTemplate the billing database
+   * @param versionHistoryService where every prior version is snapshotted
+   * @param configuration the runtime config, for {@code billing.currency}
+   */
+  @Autowired
   public PlanCatalogService(
-      JdbcTemplate jdbcTemplate, BillingVersionHistoryService versionHistoryService) {
+      JdbcTemplate jdbcTemplate,
+      BillingVersionHistoryService versionHistoryService,
+      BillingConfigurationService configuration) {
     this.jdbcTemplate = Objects.requireNonNull(jdbcTemplate, "JdbcTemplate cannot be null");
     this.versionHistoryService =
         Objects.requireNonNull(
             versionHistoryService, "BillingVersionHistoryService cannot be null");
+    this.configuration =
+        Objects.requireNonNull(configuration, "BillingConfigurationService cannot be null");
+  }
+
+  /**
+   * The catalogue reading {@code billing.currency} from the same database.
+   *
+   * @param jdbcTemplate the billing database
+   * @param versionHistoryService where every prior version is snapshotted
+   * @deprecated kept for binary compatibility; Spring uses the constructor taking the configuration
+   *     service
+   */
+  @Deprecated(since = "0.2.0")
+  public PlanCatalogService(
+      JdbcTemplate jdbcTemplate, BillingVersionHistoryService versionHistoryService) {
+    this(
+        jdbcTemplate,
+        versionHistoryService,
+        new BillingConfigurationService(jdbcTemplate, versionHistoryService));
   }
 
   /**
@@ -83,14 +114,18 @@ public class PlanCatalogService {
    * make removing a capability impossible without a second endpoint, and a half-applied matrix is a
    * plan that grants something nobody chose.
    *
-   * @param plan the plan to write
+   * @param requested the plan to write; without a currency it is priced in {@code billing.currency}
    * @param changedBy the admin's actor id
    * @return the plan as stored
    */
   @Transactional
-  public CatalogPlan save(CatalogPlan plan, String changedBy) {
-    Objects.requireNonNull(plan, "plan must not be null");
+  public CatalogPlan save(CatalogPlan requested, String changedBy) {
+    Objects.requireNonNull(requested, "plan must not be null");
     requireAdmin(changedBy);
+    // A plan that names no currency is priced in the deployment's own (billing.currency) — the
+    // catalogue never guesses one, and never stores a row without it.
+    CatalogPlan plan =
+        requested.currency() == null ? requested.withCurrency(configuration.currency()) : requested;
     find(plan.planKey())
         .ifPresent(
             prior -> versionHistoryService.snapshot(ENTITY_TYPE, plan.planKey(), prior, changedBy));
