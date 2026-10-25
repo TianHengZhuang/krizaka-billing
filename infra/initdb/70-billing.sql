@@ -187,7 +187,7 @@ CREATE TABLE credit_hold (
     estimated_credits  BIGINT       NOT NULL,
     settled_credits    BIGINT,
     status             VARCHAR(20)  NOT NULL,  -- ACTIVE|SETTLED|RELEASED|EXPIRED
-    capability         VARCHAR(50)  NOT NULL,  -- CHAT|IMAGE|AUDIO|VIDEO|AGENT (mirrors business.api.Capability, contract-copied)
+    capability         VARCHAR(50)  NOT NULL,  -- CHAT|IMAGE|AUDIO|VIDEO|AGENT|EXTERNAL_CHECK|RESEARCH (mirrors BillableCapability; BillingSchemaCapabilityTest)
     model_name         VARCHAR(255),
     pricebook_version  INT          NOT NULL,  -- pin the rate: a mid-flight price change cannot corrupt settlement
     correlation_id     VARCHAR(255) NOT NULL,  -- Intention.id — ties a hold to its whole agent run
@@ -403,9 +403,16 @@ INSERT INTO billing_plan_entitlement (plan_key, entitlement_key, value_type, val
 ('free',     'studio.art-still-life', 'boolean', 'true'),
 ('free',     'studio.art-montreal-night', 'boolean', 'true'),
 ('free',     'studio.image-analysis',   'boolean', 'true'),
+('free',     'studio.profile-photo-check', 'boolean', 'true'),
+('free',     'studio.media-safety', 'boolean', 'true'),
+('free',     'studio.message-authenticity', 'boolean', 'true'),
 ('free',     'studio.speech-synthesis', 'boolean', 'false'),
 ('free',     'studio.audio-analysis',   'boolean', 'false'),
 ('free',     'studio.video-generation', 'boolean', 'false'),
+('free',     'studio.cinematic-script', 'boolean', 'false'),
+('free',     'studio.cinematic-cut', 'boolean', 'false'),
+('free',     'studio.cinematic-treatment', 'boolean', 'false'),
+('free',     'studio.cinematic-critique', 'boolean', 'false'),
 ('free',     'studio.video-with-sound', 'boolean', 'false'),
 ('free',     'studio.video-sound', 'boolean', 'false'),
 ('free',     'studio.video-analysis',   'boolean', 'false'),
@@ -453,9 +460,16 @@ INSERT INTO billing_plan_entitlement (plan_key, entitlement_key, value_type, val
 ('premium',  'studio.art-still-life', 'boolean', 'true'),
 ('premium',  'studio.art-montreal-night', 'boolean', 'true'),
 ('premium',  'studio.image-analysis',   'boolean', 'true'),
+('premium',  'studio.profile-photo-check', 'boolean', 'true'),
+('premium',  'studio.media-safety', 'boolean', 'true'),
+('premium',  'studio.message-authenticity', 'boolean', 'true'),
 ('premium',  'studio.speech-synthesis', 'boolean', 'true'),
 ('premium',  'studio.audio-analysis',   'boolean', 'true'),
 ('premium',  'studio.video-generation', 'boolean', 'true'),
+('premium',  'studio.cinematic-script', 'boolean', 'true'),
+('premium',  'studio.cinematic-cut', 'boolean', 'true'),
+('premium',  'studio.cinematic-treatment', 'boolean', 'true'),
+('premium',  'studio.cinematic-critique', 'boolean', 'true'),
 ('premium',  'studio.video-with-sound', 'boolean', 'true'),
 ('premium',  'studio.video-sound', 'boolean', 'true'),
 ('premium',  'studio.video-analysis',   'boolean', 'true'),
@@ -486,9 +500,16 @@ INSERT INTO billing_plan_entitlement (plan_key, entitlement_key, value_type, val
 ('ultimate', 'studio.art-still-life', 'boolean', 'true'),
 ('ultimate', 'studio.art-montreal-night', 'boolean', 'true'),
 ('ultimate', 'studio.image-analysis',   'boolean', 'true'),
+('ultimate', 'studio.profile-photo-check', 'boolean', 'true'),
+('ultimate', 'studio.media-safety', 'boolean', 'true'),
+('ultimate', 'studio.message-authenticity', 'boolean', 'true'),
 ('ultimate', 'studio.speech-synthesis', 'boolean', 'true'),
 ('ultimate', 'studio.audio-analysis',   'boolean', 'true'),
 ('ultimate', 'studio.video-generation', 'boolean', 'true'),
+('ultimate', 'studio.cinematic-script', 'boolean', 'true'),
+('ultimate', 'studio.cinematic-cut', 'boolean', 'true'),
+('ultimate', 'studio.cinematic-treatment', 'boolean', 'true'),
+('ultimate', 'studio.cinematic-critique', 'boolean', 'true'),
 ('ultimate', 'studio.video-with-sound', 'boolean', 'true'),
 ('ultimate', 'studio.video-sound', 'boolean', 'true'),
 ('ultimate', 'studio.echo-reverse', 'boolean', 'true'),
@@ -498,6 +519,37 @@ INSERT INTO billing_plan_entitlement (plan_key, entitlement_key, value_type, val
 ('ultimate', 'studio.session-summary', 'boolean', 'true'),
 ('ultimate', 'studio.video-analysis',   'boolean', 'true')
 ON CONFLICT (plan_key, entitlement_key) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The `yororis` plan (service plan of the Yororis app, a virtual neighbour).
+--
+-- Not public, not for sale: the plan of the Yororis service account. Three decisions are data:
+--   * capability.chat only — Yororis answers by the voice turn, which is a chat turn;
+--   * capability.audio FALSE for now — a typed turn on a plan without it is answered as text
+--     (VoiceTurnService); a recording is refused (it would reach the model before it can be
+--     screened). Turn it on, as data, the day a voice engine serves the environment;
+--   * retention.none TRUE — no-storage mode (Context.retentionNone): the engine keeps counters and
+--     metadata, never a prompt, a completion or a transcript, and logs no content.
+-- ─────────────────────────────────────────────────────────────────────────────
+INSERT INTO billing_plan (plan_key, label, tier_rank, monthly_credit_grant, price_cents, currency, rate_limit_tier_key, is_public, is_active) VALUES
+('yororis', 'Yororis', 10, 3000, 0, 'CAD', 'premium', FALSE, TRUE)
+ON CONFLICT (plan_key) DO NOTHING;
+
+INSERT INTO billing_plan_entitlement (plan_key, entitlement_key, value_type, value) VALUES
+('yororis', 'capability.chat',       'boolean', 'true'),
+('yororis', 'capability.image',      'boolean', 'false'),
+('yororis', 'capability.audio',      'boolean', 'false'),
+('yororis', 'capability.video',      'boolean', 'false'),
+('yororis', 'capability.agent',      'boolean', 'false'),
+('yororis', 'capability.workflow',   'boolean', 'false'),
+('yororis', 'capability.automation', 'boolean', 'false'),
+('yororis', 'capability.api-keys',   'boolean', 'false'),
+('yororis', 'concurrency.jobs',      'int',     '1'),
+('yororis', 'model.class',           'string',  'premium'),
+('yororis', 'topup.enabled',         'boolean', 'false'),
+('yororis', 'retention.none',        'boolean', 'true'),
+('yororis', 'studio.guided-journaling', 'boolean', 'true')
+ON CONFLICT (plan_key, entitlement_key) DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value;
 
 -- Packs métier (ADR-034 §8.1, ADR-036). A PAID Studio is unlocked by BUYING its pack,
 -- not by upgrading a plan — which is why the entitlement lives here and not in the
@@ -625,8 +677,36 @@ INSERT INTO credit_pricebook (version, capability, model_name, unit, credits_per
 -- whisper rows (60/min) only because this path does the transcription AND the keyframe extraction
 -- on one pass of the same hardware; the real number wants a measured run, like every other rate
 -- flagged in this file.
-(2, 'VIDEO', 'orazaka-video-analysis', 'AUDIO_MINUTE', 45.0000, 5, 90)
+(2, 'VIDEO', 'orazaka-video-analysis', 'AUDIO_MINUTE', 45.0000, 5, 90),
+-- Calls to providers outside the engine, priced per CALL with `model_name` = the provider key
+-- (orazaka-packs#138). The quantity is the `calls` the executor reports (0 settles nothing, the
+-- hold is released in full); a report without `calls` is one call.
+--
+-- EXTERNAL_CHECK: court records, credit, identity checks. 'mock' is the connector the engine runs
+-- until the pilot's go (orazaka-ai-engine#90); a real provider gets its own row at its own price.
+-- RESEARCH: grounded research (ADR-087); 'law-corpus' is a read of the engine's own law corpus.
+--
+-- ⚠ PLACEHOLDERS, like every rate in this file. EXTERNAL_CHECK sits at the AGENT/CALL rate (50) —
+-- never below what an orchestration call costs; RESEARCH/law-corpus at 10, a local read, above the
+-- $5 per 1000 requests ADR-087 quotes for a paid search API (5 credits). Same floor as AGENT.
+-- v2 only, like the fr-FR voices: a fresh database matches one migrated by
+-- infra/migrations/2026-10-25-pricebook-external-check-research.sql.
+(2, 'EXTERNAL_CHECK', 'mock',       'CALL', 50.0000, 5, 50),
+(2, 'RESEARCH',       'law-corpus', 'CALL', 10.0000, 5, 10)
 ON CONFLICT DO NOTHING;
 
 
 
+
+-- ADR-085: every operator write of billing, who/what/target/request/outcome (ids only, never content).
+CREATE TABLE IF NOT EXISTS operator_audit (
+    id BIGSERIAL PRIMARY KEY,
+    at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actor_id VARCHAR(255),
+    actor_label VARCHAR(255) NOT NULL,
+    action VARCHAR(120) NOT NULL,
+    target_id VARCHAR(255),
+    request_id VARCHAR(64),
+    outcome VARCHAR(12) NOT NULL DEFAULT 'ok'
+);
+CREATE INDEX IF NOT EXISTS idx_operator_audit_at ON operator_audit(at DESC);
